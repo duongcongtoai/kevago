@@ -1,8 +1,9 @@
-package kevago
+package pool
 
 import (
 	"context"
 	"net"
+	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -26,7 +27,7 @@ var _ = Describe("MinIdleConns", func() {
 			IdleCheckFrequency: -1,
 		})
 		Eventually(func() int {
-			return connPool.TotalConn()
+			return connPool.TotalConns()
 		}).Should(Equal(minIdleConns))
 		Eventually(func() int {
 			return connPool.TotalIdleConns()
@@ -45,7 +46,7 @@ var _ = Describe("MinIdleConns", func() {
 		})
 
 		It("has idle connections", func() {
-			Expect(connPool.TotalConn()).To(Equal(minIdleConn))
+			Expect(connPool.TotalConns()).To(Equal(minIdleConn))
 			Expect(connPool.TotalIdleConns()).To(Equal(minIdleConn))
 		})
 
@@ -93,26 +94,60 @@ var _ = Describe("MinIdleConns", func() {
 
 })
 
-// var _ = Describe("conns reaper", func() {
-// 	const idleTimeout = time.Minute
-// 	const maxAge = time.Hour
-// 	var closedConns []*Conn
+var _ = Describe("conns reaper", func() {
+	const idleTimeout = 5 * time.Minute
+	const maxAge = time.Hour
+	const poolSize = 10
+	const minIdle = 0
+	closedConnL := new(sync.Mutex)
+	var closedConns []*Conn
+	var connPool *ConnPool
 
-// 	assert := func(typ string) {
-// 		BeforeEach(func() {
-// 			connPool, err := NewConnPool(Options{
-// 				Dialer:             dummyDialer,
-// 				PoolSize:           10,
-// 				IdleTimeout:        idleTimeout,
-// 				MaxConnAge:         maxAge,
-// 				PoolTimeout:        time.Second,
-// 				IdleCheckFrequency: time.Hour,
-// 				OnConnClosed: func(cn *Conn) error {
-// 					closedConns = append(closedConns, cn)
-// 					return nil
-// 				},
-// 			})
-// 			Expect(err).NotTo(HaveOccurred())
-// 		})
-// 	}
-// })
+	assertConnsReaperWork := func() {
+		BeforeEach(func() {
+			initConnPool, err := NewConnPool(Options{
+				Dialer:             dummyDialer,
+				PoolSize:           poolSize,
+				IdleTimeout:        idleTimeout,
+				MinIdleConn:        minIdle,
+				MaxConnAge:         maxAge,
+				PoolTimeout:        time.Second,
+				IdleCheckFrequency: time.Hour,
+				OnConnClosed: func(cn *Conn) error {
+					closedConnL.Lock()
+					closedConns = append(closedConns, cn)
+					closedConnL.Unlock()
+					return nil
+				},
+			})
+			connPool = initConnPool
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(func() int {
+				return connPool.TotalIdleConns()
+			}).Should(Equal(minIdle))
+			var temp []*Conn = nil
+
+			for i := 0; i < minIdle; i++ {
+				con, err := connPool.Get()
+				Expect(err).NotTo(HaveOccurred())
+				temp = append(temp, con)
+			}
+			for _, item := range temp {
+				item.SetLastUsed(time.Now().Add(-2 * idleTimeout)) //make conn idle time out
+				connPool.Put(item)
+			}
+			Eventually(func() int {
+				return connPool.TotalIdleConns()
+			}).Should(Equal(0))
+
+		})
+		It("staled connections are closed", func() {
+			Expect(len(closedConns)).Should(Equal(minIdle))
+		})
+		// It("fresh connections remain equal min idles", func() {
+		// 	Expect(connPool.TotalConns()).Should(Equal(minIdle))
+		// 	Expect(connPool.TotalIdleConns()).Should(Equal(minIdle))
+		// })
+	}
+	assertConnsReaperWork()
+})

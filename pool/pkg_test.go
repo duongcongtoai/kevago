@@ -1,4 +1,4 @@
-package kevago
+package pool
 
 import (
 	"testing"
@@ -9,5 +9,5 @@ import (
 
 func TestGinkgoSuite(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "pool")
+	RunSpecs(t, "Pool")
 }

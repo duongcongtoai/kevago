@@ -1,4 +1,4 @@
-package kevago
+package pool
 
 import (
 	"context"
@@ -6,8 +6,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 var (
@@ -20,21 +18,23 @@ type ConnPool struct {
 	opt               Options
 	idleConns         []*Conn //TODO: consider between stack and queue based pool
 	conns             map[string]*Conn
-	totalManagedConns int
-	// totalIdleConns    int
-	sema          semaphore
-	connsMu       *sync.Mutex
-	lastDialError atomic.Value
-	closedChan    chan struct{}
+	totalManagedConns int //this counter is temporary and not accurate
+	totalIdleConns    int
+	sema              semaphore
+	connsMu           *sync.Mutex
+	lastDialError     atomic.Value
+	closedChan        chan struct{}
 }
 
-func (p *ConnPool) TotalConn() int {
+//TotalConn to expose metric
+func (p *ConnPool) TotalConns() int {
 	p.connsMu.Lock()
-	// l := len(p.totalManagedConns)
 	l := p.totalManagedConns
 	p.connsMu.Unlock()
 	return l
 }
+
+//TotalIdleConns to expose metric
 func (p *ConnPool) TotalIdleConns() int {
 	p.connsMu.Lock()
 	l := len(p.idleConns)
@@ -42,14 +42,7 @@ func (p *ConnPool) TotalIdleConns() int {
 	return l
 }
 
-type Conn struct {
-	id        string
-	c         net.Conn
-	managed   bool
-	createdAt time.Time
-	usedAt    int64
-}
-
+//Options
 type Options struct {
 	PoolTimeout        time.Duration
 	PoolSize           int
@@ -89,7 +82,7 @@ func (p *ConnPool) popIdle() *Conn {
 		return nil
 	}
 	idx := len(p.idleConns) - 1
-	// p.totalIdleConns--
+	p.totalIdleConns--
 	cn := p.idleConns[idx]
 	p.idleConns = p.idleConns[:idx]
 	p.ensureMinIdleConns()
@@ -116,6 +109,7 @@ func (p *ConnPool) Get() (*Conn, error) {
 			//idle connection is always managed, remove here as well
 			delete(p.conns, cn.id)
 			p.totalManagedConns--
+			p.totalIdleConns--
 			p.ensureMinIdleConns()
 			p.connsMu.Unlock()
 			continue
@@ -129,10 +123,20 @@ func (p *ConnPool) Get() (*Conn, error) {
 		p.sema.release()
 		return nil, err
 	}
+	p.connsMu.Lock()
+	defer p.connsMu.Unlock()
 
-	// metrics miss pool
-	c := newUnmanagedConnFromNet(netconn) // will not be put back to pool later
-	return c, nil
+	//Pool is full
+	if p.totalManagedConns > p.opt.PoolSize {
+		c := newUnmanagedConnFromNet(netconn) // will not be put back to pool later
+		return c, nil
+	} else {
+		c := newManagedConnFromNet(netconn)
+		p.totalManagedConns++
+		p.totalIdleConns++
+		p.conns[c.id] = c
+		return c, nil
+	}
 }
 
 func (p *ConnPool) Put(c *Conn) {
@@ -144,7 +148,7 @@ func (p *ConnPool) Put(c *Conn) {
 	}
 	p.connsMu.Lock()
 	p.idleConns = append(p.idleConns, c)
-	// p.totalIdleConns++
+	p.totalIdleConns++
 	p.connsMu.Unlock()
 	p.sema.release()
 }
@@ -177,11 +181,10 @@ func (p *ConnPool) ensureMinIdleConns() {
 		return
 	}
 	totalErrCount := uint32(0)
-	idleLen := len(p.idleConns)
 
-	for p.totalManagedConns < p.opt.PoolSize && idleLen < p.opt.MinIdleConn {
+	for p.totalManagedConns < p.opt.PoolSize && p.totalIdleConns < p.opt.MinIdleConn {
 		p.totalManagedConns++ //TODO: is this counter necessary
-		idleLen++
+		p.totalIdleConns++
 		go func() {
 			err := p.addIdleConn(&totalErrCount)
 
@@ -189,6 +192,7 @@ func (p *ConnPool) ensureMinIdleConns() {
 			if err != nil {
 				p.connsMu.Lock()
 				p.totalManagedConns--
+				p.totalIdleConns--
 				p.connsMu.Unlock()
 			}
 		}()
@@ -197,7 +201,21 @@ func (p *ConnPool) ensureMinIdleConns() {
 
 func (p *ConnPool) getLastDialError() error {
 	return p.lastDialError.Load().(error)
+}
 
+//RemoveConn input connection should never be an idle connection
+func (p *ConnPool) RemoveConn(c *Conn) {
+	p.connsMu.Lock()
+
+	//unmanaged
+	delete(p.conns, c.id)
+	p.totalManagedConns--
+
+	//check min idle
+	p.ensureMinIdleConns()
+	p.connsMu.Unlock()
+	p.sema.release()
+	p.closeConn(c)
 }
 
 func (p *ConnPool) addIdleConn(totalErr *uint32) error {
@@ -214,22 +232,7 @@ func (p *ConnPool) addIdleConn(totalErr *uint32) error {
 	c := newManagedConnFromNet(netconn)
 	p.conns[c.id] = c
 	p.idleConns = append(p.idleConns, c)
+	//do not increment meta counter here
 	p.connsMu.Unlock()
 	return nil
-}
-
-func newManagedConnFromNet(c net.Conn) *Conn {
-	return &Conn{
-		id:      uuid.New().String(),
-		c:       c,
-		managed: true,
-	}
-}
-
-func newUnmanagedConnFromNet(c net.Conn) *Conn {
-	return &Conn{
-		id:      uuid.New().String(),
-		c:       c,
-		managed: false,
-	}
 }

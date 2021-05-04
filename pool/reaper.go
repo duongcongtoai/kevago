@@ -1,6 +1,8 @@
-package kevago
+package pool
 
-import "time"
+import (
+	"time"
+)
 
 func (p *ConnPool) reapStaleConns() {
 	for {
@@ -20,12 +22,15 @@ func (p *ConnPool) reapOneStaled() *Conn {
 	if len(p.idleConns) == 0 {
 		return nil
 	}
+
 	cn := p.idleConns[0]
 	if !p.isStale(cn) {
 		return nil
 	}
 	p.idleConns = append(p.idleConns[:0], p.idleConns[1:]...)
+	p.totalIdleConns--
 	//idle connection is always managed, remove here as well
+
 	delete(p.conns, cn.id)
 	p.totalManagedConns--
 	p.ensureMinIdleConns()
@@ -40,7 +45,7 @@ func (p *ConnPool) isStale(c *Conn) bool {
 	}
 	now := time.Now()
 	//long time not used
-	if p.opt.IdleTimeout > 0 && now.Sub(c.lastUsed()) >= p.opt.IdleTimeout {
+	if p.opt.IdleTimeout > 0 && now.Sub(c.LastUsed()) >= p.opt.IdleTimeout {
 		return true
 	}
 	//recently used but total age reached
