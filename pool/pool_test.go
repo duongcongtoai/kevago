@@ -1,20 +1,25 @@
+//TODO: USE GO UNIT TEST INSTEAD
 package pool
 
 import (
 	"context"
 	"net"
 	"sync"
+	"testing"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"github.com/stretchr/testify/assert"
 )
 
 func dummyDialer(ctx context.Context) (net.Conn, error) {
 	return &net.TCPConn{}, nil
 }
 
-var _ = Describe("MinIdleConns", func() {
+func eventually(t *testing.T, f func() bool) {
+	assert.Eventually(t, f, time.Second, time.Millisecond*10)
+}
+
+func TestMinIdleConns(t *testing.T) {
 	const poolSize = 100
 	// ctx := context.Background()
 	createPoolFunc := func(minIdleConns int) *ConnPool {
@@ -26,128 +31,93 @@ var _ = Describe("MinIdleConns", func() {
 			IdleTimeout:        -1,
 			IdleCheckFrequency: -1,
 		})
-		Eventually(func() int {
-			return connPool.TotalConns()
-		}).Should(Equal(minIdleConns))
-		Eventually(func() int {
-			return connPool.TotalIdleConns()
-		}).Should(Equal(minIdleConns))
-		Expect(err).NotTo(HaveOccurred())
+		assert.NoError(t, err)
+		eventually(t, func() bool {
+			return connPool.TotalConns() == minIdleConns
+		})
+		eventually(t, func() bool {
+			return connPool.TotalIdleConns() == minIdleConns
+		})
 		return connPool
 	}
 
-	assertPoolGetPut := func(minIdleConn int) {
-		var connPool *ConnPool
-		BeforeEach(func() {
-			connPool = createPoolFunc(minIdleConn)
-		})
-		AfterEach(func() {
-			connPool.Close()
-		})
-
-		It("has idle connections", func() {
-			Expect(connPool.TotalConns()).To(Equal(minIdleConn))
-			Expect(connPool.TotalIdleConns()).To(Equal(minIdleConn))
-		})
-
-		When("Get one", func() {
+	assertPoolGetPut := func(t *testing.T, minIdleConn int) {
+		connPool := createPoolFunc(minIdleConn)
+		defer connPool.Close()
+		assert.Equal(t, minIdleConn, connPool.TotalConns())
+		assert.Equal(t, minIdleConn, connPool.TotalIdleConns())
+		t.Run("Pool functionality", func(t *testing.T) {
 			var cn *Conn
-			BeforeEach(func() {
-				incn, err := connPool.Get()
-				Expect(err).NotTo(HaveOccurred())
-				cn = incn
+			incn, err := connPool.Get()
+			assert.NoError(t, err)
+			cn = incn
 
-				// //wait for min idle to be ensured
-				Eventually(func() int {
-					return connPool.TotalIdleConns()
-				}).Should(Equal(minIdleConn))
+			// //wait for min idle to be ensured
+			eventually(t, func() bool {
+				return connPool.TotalIdleConns() == minIdleConn
+			})
+			// assert.Equal(t, minIdleConn, connPool.TotalIdleConns())
+			t.Run("Put back conn", func(t *testing.T) {
+				connPool.Put(cn)
+				assert.Equal(t, minIdleConn+1, connPool.TotalIdleConns())
 
 			})
-			It("has idle connections", func() {
-				Eventually(func() int {
-					return connPool.TotalIdleConns()
-				}).Should(Equal(minIdleConn))
-
-				Expect(connPool.TotalIdleConns()).To(Equal(minIdleConn))
-
-			})
-			When("Put back", func() {
-				BeforeEach(func() {
-					connPool.Put(cn)
-				})
-
-				It("has idle connections", func() {
-					Expect(connPool.TotalIdleConns()).To(Equal(minIdleConn + 1))
-				})
-			})
-
 		})
-
 	}
-	Context("minIdleConns = 1", func() {
-		assertPoolGetPut(1)
+	t.Run("MinIdleConns = 1", func(t *testing.T) {
+		assertPoolGetPut(t, 1)
 	})
-
-	Context("minIdleConns = 32", func() {
-		assertPoolGetPut(32)
+	t.Run("MinIdleConns = 32", func(t *testing.T) {
+		assertPoolGetPut(t, 32)
 	})
+}
 
-})
-
-var _ = Describe("conns reaper", func() {
+func TestConnReaper(t *testing.T) {
 	const idleTimeout = 5 * time.Minute
 	const maxAge = time.Hour
 	const poolSize = 10
-	const minIdle = 0
+	const minIdle = 0 //must be zero
 	closedConnL := new(sync.Mutex)
 	var closedConns []*Conn
 	var connPool *ConnPool
-
-	assertConnsReaperWork := func() {
-		BeforeEach(func() {
-			initConnPool, err := NewConnPool(Options{
-				Dialer:             dummyDialer,
-				PoolSize:           poolSize,
-				IdleTimeout:        idleTimeout,
-				MinIdleConn:        minIdle,
-				MaxConnAge:         maxAge,
-				PoolTimeout:        time.Second,
-				IdleCheckFrequency: time.Hour,
-				OnConnClosed: func(cn *Conn) error {
-					closedConnL.Lock()
-					closedConns = append(closedConns, cn)
-					closedConnL.Unlock()
-					return nil
-				},
-			})
-			connPool = initConnPool
-			Expect(err).NotTo(HaveOccurred())
-			Eventually(func() int {
-				return connPool.TotalIdleConns()
-			}).Should(Equal(minIdle))
-			var temp []*Conn = nil
-
-			for i := 0; i < minIdle; i++ {
-				con, err := connPool.Get()
-				Expect(err).NotTo(HaveOccurred())
-				temp = append(temp, con)
-			}
-			for _, item := range temp {
-				item.SetLastUsed(time.Now().Add(-2 * idleTimeout)) //make conn idle time out
-				connPool.Put(item)
-			}
-			Eventually(func() int {
-				return connPool.TotalIdleConns()
-			}).Should(Equal(0))
-
+	assertConnsReaperWork := func(t *testing.T) {
+		initConnPool, err := NewConnPool(Options{
+			Dialer:             dummyDialer,
+			PoolSize:           poolSize,
+			IdleTimeout:        idleTimeout,
+			MinIdleConn:        minIdle,
+			MaxConnAge:         maxAge,
+			PoolTimeout:        time.Second,
+			IdleCheckFrequency: time.Hour,
+			OnConnClosed: func(cn *Conn) error {
+				closedConnL.Lock()
+				closedConns = append(closedConns, cn)
+				closedConnL.Unlock()
+				return nil
+			},
 		})
-		It("staled connections are closed", func() {
-			Expect(len(closedConns)).Should(Equal(minIdle))
+		connPool = initConnPool
+		assert.NoError(t, err)
+		eventually(t, func() bool {
+			return connPool.TotalIdleConns() == minIdle
 		})
-		// It("fresh connections remain equal min idles", func() {
-		// 	Expect(connPool.TotalConns()).Should(Equal(minIdle))
-		// 	Expect(connPool.TotalIdleConns()).Should(Equal(minIdle))
-		// })
+
+		var temp []*Conn = nil
+
+		for i := 0; i < minIdle; i++ {
+			con, err := connPool.Get()
+			assert.NoError(t, err)
+			temp = append(temp, con)
+		}
+		for _, item := range temp {
+			item.SetLastUsed(time.Now().Add(-2 * idleTimeout)) //make conn idle time out
+			connPool.Put(item)
+		}
+		eventually(t, func() bool {
+			return connPool.TotalIdleConns() == 0
+		})
+		assert.Equal(t, minIdle, len(closedConns))
 	}
-	assertConnsReaperWork()
-})
+
+	assertConnsReaperWork(t)
+}
