@@ -1,7 +1,6 @@
 package pool
 
 import (
-	"bufio"
 	"net"
 	"sync/atomic"
 	"time"
@@ -23,8 +22,8 @@ func (c *Conn) IsManaged() bool {
 type Conn struct {
 	id        string
 	c         net.Conn
-	r         bufio.Reader
-	w         bufio.Writer
+	r         *reader
+	w         *writer
 	managed   bool
 	createdAt time.Time
 	usedAt    int64
