@@ -109,8 +109,6 @@ func (p *ConnPool) Get() (*Conn, error) {
 			//idle connection is always managed, remove here as well
 			delete(p.conns, cn.id)
 			p.totalManagedConns--
-			p.totalIdleConns--
-			p.ensureMinIdleConns()
 			p.connsMu.Unlock()
 			continue
 		}

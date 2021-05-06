@@ -1,4 +1,3 @@
-//TODO: USE GO UNIT TEST INSTEAD
 package pool
 
 import (
@@ -21,7 +20,6 @@ func eventually(t *testing.T, f func() bool) {
 
 func TestMinIdleConns(t *testing.T) {
 	const poolSize = 100
-	// ctx := context.Background()
 	createPoolFunc := func(minIdleConns int) *ConnPool {
 		connPool, err := NewConnPool(Options{
 			Dialer:             dummyDialer,
@@ -52,7 +50,7 @@ func TestMinIdleConns(t *testing.T) {
 			assert.NoError(t, err)
 			cn = incn
 
-			// //wait for min idle to be ensured
+			//wait for min idle to be ensured
 			eventually(t, func() bool {
 				return connPool.TotalIdleConns() == minIdleConn
 			})
@@ -73,10 +71,10 @@ func TestMinIdleConns(t *testing.T) {
 }
 
 func TestConnReaper(t *testing.T) {
-	const idleTimeout = 5 * time.Minute
+	const idleTimeout = 5 * time.Second
 	const maxAge = time.Hour
-	const poolSize = 10
-	const minIdle = 0 //must be zero
+	const poolSize = 100
+	const minIdle = 10
 	closedConnL := new(sync.Mutex)
 	var closedConns []*Conn
 	var connPool *ConnPool
@@ -104,18 +102,26 @@ func TestConnReaper(t *testing.T) {
 
 		var temp []*Conn = nil
 
-		for i := 0; i < minIdle; i++ {
+		for i := 0; i < minIdle-3; i++ {
 			con, err := connPool.Get()
 			assert.NoError(t, err)
 			temp = append(temp, con)
 		}
+		//wait for min idle to be ensured
+		eventually(t, func() bool {
+			return connPool.TotalIdleConns() == minIdle
+		})
+
+		//make all idle connection staled
+		time.Sleep(idleTimeout)
 		for _, item := range temp {
-			item.SetLastUsed(time.Now().Add(-2 * idleTimeout)) //make conn idle time out
+			item.SetLastUsed(time.Now().Add(2 * idleTimeout)) //make conn idle time out
 			connPool.Put(item)
 		}
-		eventually(t, func() bool {
-			return connPool.TotalIdleConns() == 0
-		})
+
+		//reap staled connections
+		connPool.reapStaleConns()
+
 		assert.Equal(t, minIdle, len(closedConns))
 	}
 
