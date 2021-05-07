@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/duongcongtoai/kevago/proto"
 	"github.com/google/uuid"
 )
 
@@ -22,8 +23,8 @@ func (c *Conn) IsManaged() bool {
 type Conn struct {
 	id        string
 	c         net.Conn
-	r         *reader
-	w         *writer
+	r         *proto.Reader
+	w         *proto.Writer
 	managed   bool
 	createdAt time.Time
 	usedAt    int64

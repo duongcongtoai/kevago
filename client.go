@@ -1,18 +1,20 @@
-package pool
+package kevago
 
-// import (
+import (
+	"github.com/duongcongtoai/kevago/pool"
+)
+
 // 	"context"
 // 	"net"
 
 // 	"golang.org/x/net/context"
-// )
 
 type Config struct {
 	Endpoints []string
 }
 
 type Client struct {
-	pool  *ConnPool
+	pool  *pool.ConnPool
 	cmder commander
 	// conn net.Conn //TODO: connection pool
 	// ctx    context.Context
@@ -38,21 +40,23 @@ type Client struct {
 // 	return cl, nil
 // }
 
-func (c *Client) connectionIntercept(f func(*Conn) (result, error)) (result, error) {
+func (c *Client) connectionIntercept(f func(*pool.Conn) error) error {
 	//get connection some where
-	var conn *Conn
-	res, er := f(conn)
-	return res, er
+	var conn *pool.Conn
+	return f(conn)
 }
 
-func (c *Client) Get(key string) (interface{}, error) {
-	comd := cmd{
-		name: "get",
-		args: []string{key},
+func (c *Client) Get(key string) (string, error) {
+	comd := &getCmd{
+		input: []string{key},
 	}
-	return c.connectionIntercept(func(conn *Conn) (result, error) {
+	err := c.connectionIntercept(func(conn *pool.Conn) error {
 		return c.cmder.execute(conn, comd)
 	})
+	if err != nil {
+		return "", err
+	}
+	return comd.result, nil
 	// result, err := c.cmder.execute(comd)
 	//Get a connection from pool
 	//Retry if fail
