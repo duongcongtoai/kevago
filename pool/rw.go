@@ -1,6 +1,8 @@
 package pool
 
-import "github.com/duongcongtoai/kevago/proto"
+import (
+	"github.com/duongcongtoai/kevago/proto"
+)
 
 //TODO
 func (c *Conn) WriteIntercept(f func(w *proto.Writer) error) error {

@@ -11,6 +11,7 @@ type commander struct {
 	internal map[string]CmdHandlers
 }
 type CmdHandlers struct {
+	name  string
 	read  func(r *proto.Reader, c Cmd) error
 	write func(w *proto.Writer, c Cmd) error
 }
@@ -18,12 +19,20 @@ type CmdHandlers struct {
 type Cmd interface {
 	Name() string
 	Args() []string
-
-	// resultExtractor(r *reader) error
+	ReadResult(r *proto.Reader) error
 }
 
 var globalCmd = commander{
 	internal: make(map[string]CmdHandlers),
+}
+
+func init() {
+	handlers := []CmdHandlers{
+		getHandler, setHandler,
+	}
+	for _, h := range handlers {
+		registerCmd(h.name, h)
+	}
 }
 
 func registerCmd(name string, h CmdHandlers) {
@@ -38,7 +47,7 @@ func (c commander) execute(conn *pool.Conn, comd Cmd) error {
 	err := conn.WriteIntercept(func(w *proto.Writer) error {
 		return hs.write(w, comd)
 	})
-	// err := hs.write(conn.w, comd)
+
 	if err != nil {
 		return err
 	}

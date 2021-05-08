@@ -11,6 +11,7 @@ import (
 
 type Config struct {
 	Endpoints []string
+	Pool      pool.Options
 }
 
 type Client struct {
@@ -21,9 +22,17 @@ type Client struct {
 	// cancel context.CancelFunc
 }
 
-// func (c *Client) Close() error {
+func NewClient(c Config) (*Client, error) {
+	p, err := pool.NewConnPool(c.Pool)
+	if err != nil {
+		return nil, err
+	}
 
-// }
+	return &Client{
+		pool:  p,
+		cmder: globalCmd,
+	}, nil
+}
 
 // func NewClient(c Config) (*Client, error) {
 // 	conn, err := net.Dial("tcp", c.Endpoints[0])
@@ -41,11 +50,15 @@ type Client struct {
 // }
 
 func (c *Client) connectionIntercept(f func(*pool.Conn) error) error {
-	//get connection some where
-	var conn *pool.Conn
+	conn, err := c.pool.Get()
+	defer c.pool.Put(conn)
+	if err != nil {
+		return err
+	}
 	return f(conn)
 }
 
+//TODO: remove boiler plating code, reuse code according to input/output type
 func (c *Client) Get(key string) (string, error) {
 	comd := &getCmd{
 		input: []string{key},
@@ -57,18 +70,17 @@ func (c *Client) Get(key string) (string, error) {
 		return "", err
 	}
 	return comd.result, nil
-	// result, err := c.cmder.execute(comd)
-	//Get a connection from pool
-	//Retry if fail
-	//Include retry backoff
-	//Write to socket
-	//Read from socket
-	// return nil, nil
 }
 
-// func (c *Client) readLoop() {
-
-// }
-// func (c *Client) writeLoop() {
-
-// }
+func (c *Client) Set(key string, value string) (string, error) {
+	comd := &setCmd{
+		input: []string{key, value},
+	}
+	err := c.connectionIntercept(func(conn *pool.Conn) error {
+		return c.cmder.execute(conn, comd)
+	})
+	if err != nil {
+		return "", err
+	}
+	return comd.result, nil
+}

@@ -2,6 +2,7 @@ package pool
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -59,6 +60,9 @@ func setDefaultOpt(opt Options) Options {
 }
 
 func NewConnPool(opt Options) (*ConnPool, error) {
+	if opt.Dialer == nil {
+		return nil, fmt.Errorf("missing dialing function")
+	}
 	opt = setDefaultOpt(opt)
 	p := &ConnPool{
 		opt:        opt,

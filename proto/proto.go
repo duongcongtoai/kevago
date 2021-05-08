@@ -2,6 +2,10 @@ package proto
 
 import "bufio"
 
-type Reader bufio.Reader
+type Reader struct {
+	*bufio.Reader
+}
 
-type Writer bufio.Writer
+type Writer struct {
+	*bufio.Writer
+}

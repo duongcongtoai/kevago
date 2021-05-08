@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"bufio"
 	"net"
 	"sync/atomic"
 	"time"
@@ -38,6 +39,12 @@ func (c *Conn) SetLastUsed(t time.Time) {
 func newManagedConnFromNet(c net.Conn) *Conn {
 	now := time.Now()
 	return &Conn{
+		w: &proto.Writer{
+			Writer: bufio.NewWriter(c),
+		},
+		r: &proto.Reader{
+			Reader: bufio.NewReader(c),
+		},
 		id:        uuid.New().String(),
 		c:         c,
 		managed:   true,
@@ -49,6 +56,12 @@ func newManagedConnFromNet(c net.Conn) *Conn {
 func newUnmanagedConnFromNet(c net.Conn) *Conn {
 	now := time.Now()
 	return &Conn{
+		w: &proto.Writer{
+			Writer: bufio.NewWriter(c),
+		},
+		r: &proto.Reader{
+			Reader: bufio.NewReader(c),
+		},
 		id:        uuid.New().String(),
 		c:         c,
 		managed:   false,
