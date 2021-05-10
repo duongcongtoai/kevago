@@ -4,19 +4,19 @@ import (
 	"github.com/duongcongtoai/kevago/proto"
 )
 
-type getCmd struct {
+type expireCmd struct {
 	input  []string
 	result string
 }
 
-func (g *getCmd) Name() string {
-	return "get"
+func (g *expireCmd) Name() string {
+	return "expire"
 }
 
-func (g *getCmd) Args() []string {
+func (g *expireCmd) Args() []string {
 	return g.input
 }
-func (g *getCmd) ReadResult(r *proto.Reader) error {
+func (g *expireCmd) ReadResult(r *proto.Reader) error {
 	bs, _, err := r.ReadLine()
 	if err != nil {
 		return err
@@ -25,8 +25,8 @@ func (g *getCmd) ReadResult(r *proto.Reader) error {
 	return nil
 }
 
-var getHandler = CmdHandlers{
-	name: "get",
+var expireHandler = CmdHandlers{
+	name: "expire",
 	read: func(r *proto.Reader, c Cmd) error {
 		return c.ReadResult(r)
 	},

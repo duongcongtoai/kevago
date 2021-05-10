@@ -4,19 +4,18 @@ import (
 	"github.com/duongcongtoai/kevago/proto"
 )
 
-type getCmd struct {
-	input  []string
+type infoCmd struct {
 	result string
 }
 
-func (g *getCmd) Name() string {
-	return "get"
+func (g *infoCmd) Name() string {
+	return "info"
 }
 
-func (g *getCmd) Args() []string {
-	return g.input
+func (g *infoCmd) Args() []string {
+	return nil
 }
-func (g *getCmd) ReadResult(r *proto.Reader) error {
+func (g *infoCmd) ReadResult(r *proto.Reader) error {
 	bs, _, err := r.ReadLine()
 	if err != nil {
 		return err
@@ -25,8 +24,8 @@ func (g *getCmd) ReadResult(r *proto.Reader) error {
 	return nil
 }
 
-var getHandler = CmdHandlers{
-	name: "get",
+var infoHandler = CmdHandlers{
+	name: "info",
 	read: func(r *proto.Reader, c Cmd) error {
 		return c.ReadResult(r)
 	},

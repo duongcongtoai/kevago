@@ -93,6 +93,7 @@ func (p *ConnPool) popIdle() *Conn {
 	return cn
 }
 
+//TODO
 func (p *ConnPool) Close() {}
 
 func (p *ConnPool) Get() (*Conn, error) {

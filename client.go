@@ -1,6 +1,9 @@
 package kevago
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/duongcongtoai/kevago/pool"
 )
 
@@ -10,8 +13,7 @@ import (
 // 	"golang.org/x/net/context"
 
 type Config struct {
-	Endpoints []string
-	Pool      pool.Options
+	Pool pool.Options
 }
 
 type Client struct {
@@ -32,6 +34,11 @@ func NewClient(c Config) (*Client, error) {
 		pool:  p,
 		cmder: globalCmd,
 	}, nil
+}
+
+func (c *Client) Close() error {
+	c.pool.Close()
+	return nil
 }
 
 // func NewClient(c Config) (*Client, error) {
@@ -79,6 +86,55 @@ func (c *Client) Set(key string, value string) (string, error) {
 	err := c.connectionIntercept(func(conn *pool.Conn) error {
 		return c.cmder.execute(conn, comd)
 	})
+	if err != nil {
+		return "", err
+	}
+	return comd.result, nil
+}
+
+func (c *Client) Delete(key string) (string, error) {
+	comd := &delCmd{
+		input: []string{key},
+	}
+	err := c.connectionIntercept(func(conn *pool.Conn) error {
+		return c.cmder.execute(conn, comd)
+	})
+	if err != nil {
+		return "", err
+	}
+	return comd.result, nil
+}
+
+func (c *Client) Ping() error {
+	comd := &pingCmd{}
+	err := c.connectionIntercept(func(conn *pool.Conn) error {
+		return c.cmder.execute(conn, comd)
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Client) Info() (string, error) {
+	comd := &infoCmd{}
+	err := c.connectionIntercept(func(conn *pool.Conn) error {
+		return c.cmder.execute(conn, comd)
+	})
+
+	if err != nil {
+		return "", err
+	}
+	return comd.result, nil
+}
+func (c *Client) Expire(d time.Duration) (string, error) {
+	comd := &expireCmd{
+		input: []string{fmt.Sprintf("%d", d.Milliseconds())},
+	}
+	err := c.connectionIntercept(func(conn *pool.Conn) error {
+		return c.cmder.execute(conn, comd)
+	})
+
 	if err != nil {
 		return "", err
 	}

@@ -1,9 +1,6 @@
 package kevago
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/duongcongtoai/kevago/proto"
 )
 
@@ -32,12 +29,5 @@ var setHandler = CmdHandlers{
 	name: "set",
 	read: func(r *proto.Reader, c Cmd) error {
 		return c.ReadResult(r)
-	},
-	write: func(w *proto.Writer, c Cmd) error {
-		_, err := w.WriteString(fmt.Sprintf("%s %s\n", c.Name(), strings.Join(c.Args(), " ")))
-		if err != nil {
-			return err
-		}
-		return w.Flush()
 	},
 }

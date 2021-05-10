@@ -2,6 +2,7 @@ package kevago
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/duongcongtoai/kevago/pool"
 	"github.com/duongcongtoai/kevago/proto"
@@ -11,9 +12,9 @@ type commander struct {
 	internal map[string]CmdHandlers
 }
 type CmdHandlers struct {
-	name  string
-	read  func(r *proto.Reader, c Cmd) error
-	write func(w *proto.Writer, c Cmd) error
+	name string
+	read func(r *proto.Reader, c Cmd) error
+	//currently don't need write func
 }
 
 type Cmd interface {
@@ -28,7 +29,7 @@ var globalCmd = commander{
 
 func init() {
 	handlers := []CmdHandlers{
-		getHandler, setHandler,
+		getHandler, setHandler, delHandler, infoHandler, pingHandler, expireHandler,
 	}
 	for _, h := range handlers {
 		registerCmd(h.name, h)
@@ -45,7 +46,12 @@ func (c commander) execute(conn *pool.Conn, comd Cmd) error {
 		return fmt.Errorf("command %s not found", comd.Name())
 	}
 	err := conn.WriteIntercept(func(w *proto.Writer) error {
-		return hs.write(w, comd)
+		_, err := w.WriteString(fmt.Sprintf("%s %s\n", comd.Name(), strings.Join(comd.Args(), " ")))
+		if err != nil {
+			return err
+		}
+		return w.Flush()
+
 	})
 
 	if err != nil {
