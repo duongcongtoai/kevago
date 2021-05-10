@@ -51,11 +51,37 @@ func TestCRUD(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "value1", ret)
 
-	ret, err = cl.Delete("1")
+	ret, err = cl.Delete("key1")
 	assert.NoError(t, err)
 	assert.Equal(t, "1", ret)
 
 	ret, err = cl.Get("key1")
+	assert.NoError(t, err)
+	assert.Equal(t, "null", ret)
+}
+
+func TestExpire(t *testing.T) {
+	cl := setupDefault(t)
+	defer cl.Close()
+
+	ret, err := cl.Get("key2")
+	assert.NoError(t, err)
+	assert.Equal(t, "null", ret)
+
+	ret, err = cl.Set("key2", "value1")
+	assert.NoError(t, err)
+	assert.Equal(t, "1", ret)
+
+	ret, err = cl.Get("key2")
+	assert.NoError(t, err)
+	assert.Equal(t, "value1", ret)
+
+	ret, err = cl.Expire("key2", 2000*time.Millisecond)
+	assert.NoError(t, err)
+	assert.Equal(t, "1", ret)
+	time.Sleep(2000 * time.Millisecond)
+
+	ret, err = cl.Get("key2")
 	assert.NoError(t, err)
 	assert.Equal(t, "null", ret)
 
